@@ -169,8 +169,6 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 				return
 			}
 
-			fmt.Println(email)
-
 			if !slices.Contains(data.PermittedEmails, email) {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
@@ -211,6 +209,11 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 		// redirect /name to /name/
 		router.HandleFunc(fmt.Sprintf("/%s", name), func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, fmt.Sprintf("/%s/", name), http.StatusMovedPermanently)
+		})
+
+		router.PathPrefix("/robots.txt").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain")
+			w.Write([]byte("User-agent: *\nDisallow: /"))
 		})
 	}
 
