@@ -174,11 +174,13 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 				return
 			}
 
+			requestFile := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", name))
+
 			// fetch the contents from memory or from the source
 			s.sitesContentsMu.RLock()
 			contents, ok := s.sitesContents[name]
 			s.sitesContentsMu.RUnlock()
-			if !ok {
+			if !ok || requestFile == "/refresh" {
 				var err error
 				contents, err = downloadSite(data.Repo, data.Branch, data.Token)
 				if err != nil {
@@ -190,8 +192,6 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 				s.sitesContents[name] = contents
 				s.sitesContentsMu.Unlock()
 			}
-
-			requestFile := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", name))
 
 			req, err := http.NewRequest("GET", strings.TrimPrefix(requestFile, "/"), nil)
 			if err != nil {
