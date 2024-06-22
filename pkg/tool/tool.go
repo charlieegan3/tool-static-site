@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -21,7 +22,7 @@ import (
 	"github.com/spf13/afero"
 	"golang.org/x/oauth2"
 
-	"github.com/charlieegan3/tool-static-site/pkg/tool/middlewares"
+	"github.com/charlieegan3/oauth-middleware/pkg/oauthmiddleware"
 	"github.com/charlieegan3/toolbelt/pkg/apis"
 )
 
@@ -48,11 +49,11 @@ type site struct {
 	PermittedEmails []string `json:"permitted_emails"`
 }
 
-func (s *StaticSite) Name() string {
+func (*StaticSite) Name() string {
 	return "static-site"
 }
 
-func (s *StaticSite) FeatureSet() apis.FeatureSet {
+func (*StaticSite) FeatureSet() apis.FeatureSet {
 	return apis.FeatureSet{
 		HTTP:     true,
 		HTTPHost: true,
@@ -61,13 +62,14 @@ func (s *StaticSite) FeatureSet() apis.FeatureSet {
 }
 
 func (s *StaticSite) SetConfig(config map[string]any) error {
-
 	if s.sites == nil {
 		s.sites = make(map[string]site)
 	}
+
 	if s.sitesContents == nil {
 		s.sitesContents = make(map[string]*AferoHTTPFileSystem)
 	}
+
 	if s.siteLastAccessTimes == nil {
 		s.siteLastAccessTimes = make(map[string]time.Time)
 	}
@@ -77,18 +79,21 @@ func (s *StaticSite) SetConfig(config map[string]any) error {
 	cfg := gabs.Wrap(config)
 
 	path := "web.host"
+
 	s.host, ok = cfg.Path(path).Data().(string)
 	if !ok {
 		return fmt.Errorf("config value %s not set", path)
 	}
 
 	path = "auth.provider_url"
+
 	providerURL, ok := cfg.Path(path).Data().(string)
 	if !ok {
 		return fmt.Errorf("config value %s not set", path)
 	}
 
 	var err error
+
 	s.oidcProvider, err = oidc.NewProvider(context.TODO(), providerURL)
 	if err != nil {
 		return fmt.Errorf("failed to create oidc provider: %w", err)
@@ -99,25 +104,28 @@ func (s *StaticSite) SetConfig(config map[string]any) error {
 	}
 
 	path = "auth.client_id"
+
 	s.oauth2Config.ClientID, ok = cfg.Path(path).Data().(string)
 	if !ok {
 		return fmt.Errorf("config value %s not set", path)
 	}
 
 	path = "auth.client_secret"
+
 	s.oauth2Config.ClientSecret, ok = cfg.Path(path).Data().(string)
 	if !ok {
 		return fmt.Errorf("config value %s not set", path)
 	}
 
 	path = "web.https"
-	isHttps, ok := cfg.Path(path).Data().(bool)
+
+	isHTTPS, ok := cfg.Path(path).Data().(bool)
 	if !ok {
 		return fmt.Errorf("config value %s not set", path)
 	}
 
 	scheme := "https://"
-	if !isHttps {
+	if !isHTTPS {
 		scheme = "http://"
 	}
 
@@ -129,6 +137,7 @@ func (s *StaticSite) SetConfig(config map[string]any) error {
 	s.idTokenVerifier = s.oidcProvider.Verifier(&oidc.Config{ClientID: s.oauth2Config.ClientID})
 
 	path = "sites"
+
 	sites, ok := cfg.Path(path).Data().(map[string]interface{})
 	if !ok {
 		return fmt.Errorf("config value %s not set", path)
@@ -136,55 +145,82 @@ func (s *StaticSite) SetConfig(config map[string]any) error {
 
 	sitesBs, err := json.Marshal(sites)
 	if err != nil {
-		return fmt.Errorf("failed to marshal sites config: %v", err)
+		return fmt.Errorf("failed to marshal sites config: %w", err)
 	}
 
 	err = json.Unmarshal(sitesBs, &s.sites)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal sites config: %v", err)
+		return fmt.Errorf("failed to unmarshal sites config: %w", err)
 	}
 
 	return nil
 }
 
-func (s *StaticSite) Jobs() ([]apis.Job, error) { return []apis.Job{}, nil }
+func (*StaticSite) Jobs() ([]apis.Job, error) { return []apis.Job{}, nil }
 
 func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 	router.StrictSlash(true)
-	router.Use(middlewares.InitMiddlewareAuth(
-		s.oauth2Config,
-		s.idTokenVerifier,
-		"/admin/",
-	))
-	router.PathPrefix("/admin/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+
+	mw, err := oauthmiddleware.Init(&oauthmiddleware.Config{
+		OAuth2Connector: s.oauth2Config,
+		IDTokenVerifier: s.idTokenVerifier,
+		Validators: []oauthmiddleware.IDTokenValidator{
+			func(token *oidc.IDToken) (map[any]any, bool) {
+				c := struct {
+					Email string `json:"email"`
+				}{}
+
+				err := token.Claims(&c)
+				if err != nil {
+					return nil, false
+				}
+
+				return map[any]any{"email": c.Email}, true
+			},
+		},
+		AuthBasePath:     "/",
+		CallbackBasePath: "/admin",
+	})
+	if err != nil {
+		return fmt.Errorf("failed to init oauth middleware: %w", err)
+	}
+
+	router.Use(mw)
+
+	// this is the base of the auth callback so needs to match
+	router.PathPrefix("/admin/").HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
 
 	for name, data := range s.sites {
 		subRouter := router.PathPrefix(fmt.Sprintf("/%s/", name)).Subrouter()
 
 		subRouter.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 			email, ok := r.Context().Value("email").(string)
 			if !ok {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
+
 				return
 			}
 
 			if !slices.Contains(data.PermittedEmails, email) {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
+
 				return
 			}
 
-			requestFile := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", name))
+			requestFile := strings.TrimPrefix(r.URL.Path, "/"+name)
 
 			// fetch the contents from memory or from the source
 			s.sitesContentsMu.RLock()
 			contents, ok := s.sitesContents[name]
 			s.sitesContentsMu.RUnlock()
+
 			if !ok || requestFile == "/refresh" {
 				var err error
-				contents, err = downloadSite(data.Repo, data.Branch, data.Token)
+
+				contents, err = downloadSite(r.Context(), data.Repo, data.Branch, data.Token)
 				if err != nil {
 					http.Error(w, fmt.Sprintf("failed to download site: %v", err), http.StatusInternalServerError)
+
 					return
 				}
 
@@ -193,10 +229,14 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 				s.sitesContentsMu.Unlock()
 			}
 
-			req, err := http.NewRequest("GET", strings.TrimPrefix(requestFile, "/"), nil)
+			req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, strings.TrimPrefix(requestFile, "/"), nil)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte("failed to create request"))
+
+				_, err := w.Write([]byte("failed to create request"))
+				if err != nil {
+					http.Error(w, "failed to write response", http.StatusInternalServerError)
+				}
 			}
 
 			http.FileServer(contents).ServeHTTP(w, req)
@@ -207,13 +247,17 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 		})
 
 		// redirect /name to /name/
-		router.HandleFunc(fmt.Sprintf("/%s", name), func(w http.ResponseWriter, r *http.Request) {
+		router.HandleFunc("/"+name, func(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, fmt.Sprintf("/%s/", name), http.StatusMovedPermanently)
 		})
 
-		router.PathPrefix("/robots.txt").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		router.PathPrefix("/robots.txt").HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "text/plain")
-			w.Write([]byte("User-agent: *\nDisallow: /"))
+
+			_, err := w.Write([]byte("User-agent: *\nDisallow: /"))
+			if err != nil {
+				http.Error(w, "failed to write response", http.StatusInternalServerError)
+			}
 		})
 	}
 
@@ -236,16 +280,18 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 
 	return nil
 }
+
 func (s *StaticSite) HTTPHost() string {
 	return s.host
 }
-func (s *StaticSite) HTTPPath() string { return "" }
 
-func (s *StaticSite) ExternalJobsFuncSet(f func(job apis.ExternalJob) error) {}
+func (*StaticSite) HTTPPath() string { return "" }
 
-func (s *StaticSite) DatabaseSet(db *sql.DB) {}
+func (*StaticSite) ExternalJobsFuncSet(_ func(job apis.ExternalJob) error) {}
 
-func (s *StaticSite) DatabaseMigrations() (*embed.FS, string, error) {
+func (*StaticSite) DatabaseSet(_ *sql.DB) {}
+
+func (*StaticSite) DatabaseMigrations() (*embed.FS, string, error) {
 	return nil, "", nil
 }
 
@@ -256,39 +302,45 @@ type AferoHTTPFileSystem struct {
 func (a AferoHTTPFileSystem) Open(name string) (http.File, error) {
 	file, err := a.fs.Open(name)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-	return file.(http.File), nil
+
+	f, ok := file.(http.File)
+	if !ok {
+		return nil, errors.New("failed to convert file to http.File")
+	}
+
+	return f, nil
 }
 
-func downloadSite(repo, branch, token string) (*AferoHTTPFileSystem, error) {
+func downloadSite(ctx context.Context, repo, branch, token string) (*AferoHTTPFileSystem, error) {
 	client := &http.Client{}
 
 	url := fmt.Sprintf("https://api.github.com/repos/%s/zipball/%s", repo, branch)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %v", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %v", err)
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	bodyBs, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	fs := afero.NewMemMapFs()
 
 	reader, err := zip.NewReader(bytes.NewReader(bodyBs), int64(len(bodyBs)))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create zip reader: %v", err)
+		return nil, fmt.Errorf("failed to create zip reader: %w", err)
 	}
 
 	for _, file := range reader.File {
@@ -298,7 +350,7 @@ func downloadSite(repo, branch, token string) (*AferoHTTPFileSystem, error) {
 
 		f, err := file.Open()
 		if err != nil {
-			return nil, fmt.Errorf("failed to open file in zip: %v", err)
+			return nil, fmt.Errorf("failed to open file in zip: %w", err)
 		}
 		defer f.Close()
 
@@ -307,13 +359,14 @@ func downloadSite(repo, branch, token string) (*AferoHTTPFileSystem, error) {
 
 		memFile, err := fs.Create("/" + trimmedName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create file in memfs: %v", err)
+			return nil, fmt.Errorf("failed to create file in memfs: %w", err)
 		}
 		defer memFile.Close()
 
+		//nolint gosec
 		_, err = io.Copy(memFile, f)
 		if err != nil {
-			return nil, fmt.Errorf("failed to copy file content: %v", err)
+			return nil, fmt.Errorf("failed to copy file content: %w", err)
 		}
 	}
 

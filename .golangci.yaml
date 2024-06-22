@@ -1,0 +1,57 @@
+linters:
+  enable-all: true
+  disable:
+    # does not work with generics (yet)
+    - rowserrcheck
+    - wastedassign
+    # annoying
+    - tagliatelle
+    - nestif
+    - gocognit
+    - varnamelen
+    - nonamedreturns
+    - testpackage
+    - goconst
+    - gochecknoinits
+    - gomnd
+    - mnd
+    - inamedparam
+    - err113
+    - godox
+    - exhaustruct
+    - cyclop
+    - ireturn
+    - funlen
+    - nolintlint
+    - depguard
+    - gomoddirectives # need replacements for wasip1
+linters-settings:
+  tagliatelle:
+    case:
+      rules:
+        json: snake
+
+  revive:
+    rules:
+      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unused-parameter
+      - name: unused-parameter
+        severity: warning
+        disabled: false
+        arguments:
+          - allowRegex: "^_"
+      # https://github.com/mgechev/revive/blob/master/RULES_DESCRIPTIONS.md#unused-receiver
+      - name: unused-receiver
+        severity: warning
+        disabled: false
+        arguments:
+          - allowRegex: "^_"
+
+  gci:
+    sections:
+      - standard
+      - default
+      - prefix(github.com/charlieegan3/)
+      - prefix(github.com/charlieegan3/tool-static-site)
+      - blank
+      - dot
+
