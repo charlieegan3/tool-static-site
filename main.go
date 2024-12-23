@@ -5,10 +5,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
-	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 
 	"github.com/charlieegan3/toolbelt/pkg/tool"
 
@@ -16,18 +15,27 @@ import (
 )
 
 func main() {
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
+	if len(os.Args) < 2 {
+		log.Fatalf("no config file provided")
 
-	err := viper.ReadInConfig()
-	if err != nil {
-		log.Fatalf("Fatal error config file: %s \n", err)
+		os.Exit(1)
 	}
 
-	cfg, ok := viper.Get("tools").(map[string]interface{})
-	if !ok {
-		log.Fatalf("failed to read tools config in map[string]interface{} format")
+	configFilePath := os.Args[1]
+
+	log.Printf("loading config from %s\n", configFilePath)
+
+	configFile, err := os.Open(configFilePath)
+	if err != nil {
+		log.Fatalf("failed to open config file: %v", err)
+	}
+	defer configFile.Close()
+
+	var cfg map[string]any
+	err = yaml.NewDecoder(configFile).Decode(&cfg)
+	if err != nil {
+		log.Fatalf("failed to read config file: %v", err)
+
 		os.Exit(1)
 	}
 
@@ -44,7 +52,7 @@ func main() {
 
 	// init the toolbelt, connecting the database, config and external runner
 	tb := tool.NewBelt()
-	tb.SetConfig(cfg)
+	tb.SetConfig(map[string]any{"static-site": cfg})
 
 	t := ssTool.StaticSite{}
 
@@ -55,8 +63,14 @@ func main() {
 		log.Fatalf("failed to add tool: %v", err)
 	}
 
-	port := 3000
 	address := "localhost"
-	log.Printf("Starting server on http://%s:%d\n", address, port)
-	tb.RunServer(ctx, address, strconv.Itoa(port))
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "3000"
+	}
+
+	log.Printf("Starting server on http://%s:%s\n", address, port)
+
+	tb.RunServer(ctx, address, port)
 }
