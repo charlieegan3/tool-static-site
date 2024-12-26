@@ -203,7 +203,9 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 			}
 
 			if !slices.Contains(data.PermittedEmails, email) {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				fmt.Println("permitted_emails", data.PermittedEmails)
+				fmt.Println("email", email)
+				http.Error(w, "unauthorized: unknown user", http.StatusUnauthorized)
 
 				return
 			}
