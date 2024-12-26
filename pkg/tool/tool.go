@@ -171,7 +171,7 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 	mw, err := oauthmiddleware.Init(&oauthmiddleware.Config{
 		OAuth2Connector: s.oauth2Config,
 		IDTokenVerifier: s.idTokenVerifier,
-		Domain:          s.oauthDomain,
+		Domain:          s.oAuthDomain,
 		Validators: []oauthmiddleware.IDTokenValidator{
 			func(token *oidc.IDToken) (map[any]any, bool) {
 				c := struct {
