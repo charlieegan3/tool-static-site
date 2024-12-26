@@ -197,7 +197,7 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 		subRouter.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			email, ok := r.Context().Value("email").(string)
 			if !ok {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				http.Error(w, "unauthorized: no user", http.StatusUnauthorized)
 
 				return
 			}
