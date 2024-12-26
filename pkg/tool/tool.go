@@ -180,6 +180,7 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 		},
 		AuthBasePath:     "/",
 		CallbackBasePath: "/admin",
+		Debug:            true,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to init oauth middleware: %w", err)
