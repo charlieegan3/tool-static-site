@@ -61,7 +61,7 @@
 
         packages.default = pkgs.buildGoModule {
           pname = "static-site";
-          version = "0.1.0";
+          version = "0.2.0";
           vendorHash = "sha256-/r92aB2PAiKWMpqK+U3JbbDFpdyHJMAOJIgcDWWdwSg=";
           src = ./.;
           checkPhase = "";
