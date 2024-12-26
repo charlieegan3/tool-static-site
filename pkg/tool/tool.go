@@ -32,6 +32,7 @@ type StaticSite struct {
 	oauth2Config    *oauth2.Config
 	oidcProvider    *oidc.Provider
 	idTokenVerifier *oidc.IDTokenVerifier
+	oAuthDomain     string
 
 	sites map[string]site
 
@@ -110,6 +111,12 @@ func (s *StaticSite) SetConfig(config map[string]any) error {
 		return fmt.Errorf("config value %s not set", path)
 	}
 
+	path = "auth.domain"
+	s.oAuthDomain, ok = cfg.Path(path).Data().(string)
+	if !ok {
+		return fmt.Errorf("config value %s not set", path)
+	}
+
 	path = "auth.client_secret"
 
 	s.oauth2Config.ClientSecret, ok = cfg.Path(path).Data().(string)
@@ -164,6 +171,7 @@ func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 	mw, err := oauthmiddleware.Init(&oauthmiddleware.Config{
 		OAuth2Connector: s.oauth2Config,
 		IDTokenVerifier: s.idTokenVerifier,
+		Domain:          s.oauthDomain,
 		Validators: []oauthmiddleware.IDTokenValidator{
 			func(token *oidc.IDToken) (map[any]any, bool) {
 				c := struct {
