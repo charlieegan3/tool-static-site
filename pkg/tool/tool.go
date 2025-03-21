@@ -22,7 +22,6 @@ import (
 	"github.com/spf13/afero"
 	"golang.org/x/oauth2"
 
-	"github.com/charlieegan3/oauth-middleware/pkg/oauthmiddleware"
 	"github.com/charlieegan3/toolbelt/pkg/apis"
 )
 
@@ -167,34 +166,6 @@ func (*StaticSite) Jobs() ([]apis.Job, error) { return []apis.Job{}, nil }
 
 func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 	router.StrictSlash(true)
-
-	mw, err := oauthmiddleware.Init(&oauthmiddleware.Config{
-		OAuth2Connector: s.oauth2Config,
-		IDTokenVerifier: s.idTokenVerifier,
-		Domain:          s.oAuthDomain,
-		Validators: []oauthmiddleware.IDTokenValidator{
-			func(token *oidc.IDToken) (map[any]any, bool) {
-				c := struct {
-					Email string `json:"email"`
-				}{}
-
-				err := token.Claims(&c)
-				if err != nil {
-					return nil, false
-				}
-
-				return map[any]any{"email": c.Email}, true
-			},
-		},
-		AuthBasePath:     "/",
-		CallbackBasePath: "/admin",
-		Debug:            true,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to init oauth middleware: %w", err)
-	}
-
-	router.Use(mw)
 
 	// this is the base of the auth callback so needs to match
 	router.PathPrefix("/admin/").HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})

@@ -4,7 +4,6 @@ go 1.22.4
 
 require (
 	github.com/Jeffail/gabs/v2 v2.7.0
-	github.com/charlieegan3/oauth-middleware v0.0.0-20241226122715-5230a08d3db9
 	github.com/charlieegan3/toolbelt v0.0.0-20230903125731-9e3d19bf4fa9
 	github.com/coreos/go-oidc v2.2.1+incompatible
 	github.com/gorilla/mux v1.8.0
