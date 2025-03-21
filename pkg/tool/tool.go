@@ -105,15 +105,12 @@ func (*StaticSite) Jobs() ([]apis.Job, error) { return []apis.Job{}, nil }
 func (s *StaticSite) HTTPAttach(router *mux.Router) error {
 	router.StrictSlash(true)
 
-	// this is the base of the auth callback so needs to match
-	router.PathPrefix("/admin/").HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {})
-
 	for name, data := range s.sites {
 		subRouter := router.PathPrefix(fmt.Sprintf("/%s/", name)).Subrouter()
 
 		subRouter.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			email, ok := r.Context().Value("email").(string)
-			if !ok {
+			email := r.Header.Get("X-Email")
+			if email == "" {
 				http.Error(w, "unauthorized: no user", http.StatusUnauthorized)
 
 				return
