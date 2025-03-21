@@ -17,21 +17,14 @@ import (
 	"time"
 
 	"github.com/Jeffail/gabs/v2"
-	"github.com/coreos/go-oidc"
 	"github.com/gorilla/mux"
 	"github.com/spf13/afero"
-	"golang.org/x/oauth2"
 
 	"github.com/charlieegan3/toolbelt/pkg/apis"
 )
 
 type StaticSite struct {
 	host string
-
-	oauth2Config    *oauth2.Config
-	oidcProvider    *oidc.Provider
-	idTokenVerifier *oidc.IDTokenVerifier
-	oAuthDomain     string
 
 	sites map[string]site
 
@@ -85,62 +78,7 @@ func (s *StaticSite) SetConfig(config map[string]any) error {
 		return fmt.Errorf("config value %s not set", path)
 	}
 
-	path = "auth.provider_url"
-
-	providerURL, ok := cfg.Path(path).Data().(string)
-	if !ok {
-		return fmt.Errorf("config value %s not set", path)
-	}
-
 	var err error
-
-	s.oidcProvider, err = oidc.NewProvider(context.TODO(), providerURL)
-	if err != nil {
-		return fmt.Errorf("failed to create oidc provider: %w", err)
-	}
-
-	s.oauth2Config = &oauth2.Config{
-		Endpoint: s.oidcProvider.Endpoint(),
-	}
-
-	path = "auth.client_id"
-
-	s.oauth2Config.ClientID, ok = cfg.Path(path).Data().(string)
-	if !ok {
-		return fmt.Errorf("config value %s not set", path)
-	}
-
-	path = "auth.domain"
-	s.oAuthDomain, ok = cfg.Path(path).Data().(string)
-	if !ok {
-		return fmt.Errorf("config value %s not set", path)
-	}
-
-	path = "auth.client_secret"
-
-	s.oauth2Config.ClientSecret, ok = cfg.Path(path).Data().(string)
-	if !ok {
-		return fmt.Errorf("config value %s not set", path)
-	}
-
-	path = "web.https"
-
-	isHTTPS, ok := cfg.Path(path).Data().(bool)
-	if !ok {
-		return fmt.Errorf("config value %s not set", path)
-	}
-
-	scheme := "https://"
-	if !isHTTPS {
-		scheme = "http://"
-	}
-
-	s.oauth2Config.RedirectURL = scheme + s.host + "/admin/auth/callback"
-
-	// offline_access is required for refresh tokens
-	s.oauth2Config.Scopes = []string{oidc.ScopeOpenID, "profile", "email", "offline_access"}
-
-	s.idTokenVerifier = s.oidcProvider.Verifier(&oidc.Config{ClientID: s.oauth2Config.ClientID})
 
 	path = "sites"
 
